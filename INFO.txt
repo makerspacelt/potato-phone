@@ -8,3 +8,5 @@ Veikimas:
         - Atšaukti viską ir nuresetinti numerį galima tik paadėjus ragelį
 
 TODO:
+    * Surasti būdą kaip generuoti tonus - pakėlus ragelį, kol kviečia ir t.t.
+        - Reikia surasti kokie tonai buvo naudojami telefonijoje hercais ir tokius pačius generuoti su arduinu?
