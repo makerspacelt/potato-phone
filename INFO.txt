@@ -1,0 +1,10 @@
+Veikimas:
+    * Renkant numerį:
+        Pakėlus ragelį pradedama klausytis interruptų, tada leidžiama rinkti numerį ir pradedama skaičiuoti laikas tarp skaičių, jeigu praeina N laiko po paskutinio įvesto skaičiaus - pradėti skambinti.
+    * Basic algoritmas?:
+        - Pradėti viską tik jeigu yra pakeltas ragelis
+        - Renkant numerį pauzė tarp skaičių negali būti ilgiau nei N sekudžių. Praėjus N sekundžių pradedama skambinti
+        - Kol vyksta skambinimas nereaguoti į numerio rinkimo interruptus
+        - Atšaukti viską ir nuresetinti numerį galima tik paadėjus ragelį
+
+TODO:
