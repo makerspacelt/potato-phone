@@ -29,7 +29,6 @@ void numStop() {
 
 void pickupPhone() {
   Serial.println("pickedup");
-  phonePickedUp = (digitalRead(PHONE_PICKED_UP_PIN) == LOW); // phone was picked up, switch is ON
   phoneNumber = "";
   dialedNum = 0;
   phonePickedUp ? attachDialpadInterrupts() : detachDialpadInterrupts();
@@ -56,5 +55,7 @@ void setup() {
 }
 
 void loop() {
-  //Serial.println(digitalRead(PHONE_PICKED_UP_PIN));
+  if (digitalRead(PHONE_PICKED_UP_PIN) == LOW) {
+    Serial.println("picked up");
+  }
 }
