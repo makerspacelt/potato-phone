@@ -7,43 +7,35 @@
 //-------------
 const int DIALPAD_PIN = 3;
 const int NUMBER_STOP_PIN = 2;
-const int PHONE_PICKED_UP_PIN = 3;
+const int PHONE_PICKED_UP_PIN = 4;
 //-------------
 String phoneNumber = "";
-int dialedNum = 0;
+int pulses = 0;
 boolean phonePickedUp = false;
-//--PROTOTYPES--
-void attachDialpadInterrupts();
-void detachDialpadInterrupts();
 //-------------
 
 void pulseCounter() {
-  dialedNum += 1;
+  if (phonePickedUp) {
+    pulses += 1;
+  }
 }
 
 void numStop() {
-  phoneNumber += (dialedNum == 10) ? 0 : dialedNum;
-  Serial.println(phoneNumber);
-  dialedNum = 0;
+  if (phonePickedUp) {
+    phoneNumber += (pulses == 10) ? 0 : pulses;
+    Serial.println(phoneNumber);
+    pulses = 0;
+  }
 }
 
 void pickupPhone() {
-  Serial.println("pickedup");
+  phonePickedUp = true;
+}
+
+void hungupPhone() {
+  phonePickedUp = false;
   phoneNumber = "";
-  dialedNum = 0;
-  phonePickedUp ? attachDialpadInterrupts() : detachDialpadInterrupts();
-}
-
-void attachDialpadInterrupts() {
-  Serial.println("attached");
-  attachInterrupt(digitalPinToInterrupt(DIALPAD_PIN), pulseCounter, FALLING);
-  attachInterrupt(digitalPinToInterrupt(NUMBER_STOP_PIN), numStop, FALLING);
-}
-
-void detachDialpadInterrupts() {
-  Serial.println("detached");
-  detachInterrupt(digitalPinToInterrupt(DIALPAD_PIN));
-  detachInterrupt(digitalPinToInterrupt(NUMBER_STOP_PIN));
+  pulses = 0;
 }
 
 void setup() {
@@ -51,11 +43,15 @@ void setup() {
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
   pinMode(PHONE_PICKED_UP_PIN, INPUT);
-  digitalWrite(PHONE_PICKED_UP_PIN, HIGH); // enable internal pullup
+  digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
+  attachInterrupt(digitalPinToInterrupt(DIALPAD_PIN), pulseCounter, FALLING);
+  attachInterrupt(digitalPinToInterrupt(NUMBER_STOP_PIN), numStop, FALLING );
 }
 
 void loop() {
   if (digitalRead(PHONE_PICKED_UP_PIN) == LOW) {
-    Serial.println("picked up");
+    pickupPhone();
+  } else {
+    hungupPhone();
   }
 }
