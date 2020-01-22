@@ -8,23 +8,33 @@
 const int DIALPAD_PIN = 3;
 const int NUMBER_STOP_PIN = 2;
 const int PHONE_PICKED_UP_PIN = 4;
+const int NUMBER_TIMEOUT_MS = 4000;
 //-------------
 String phoneNumber = "";
 int pulses = 0;
 boolean phonePickedUp = false;
+boolean isDialing = false;
+boolean isOnCall = false;
+long millisSinceLastNumStop = 0;
 //-------------
 
 void pulseCounter() {
-  if (phonePickedUp) {
+  if (phonePickedUp && !isOnCall) {
     pulses += 1;
   }
 }
 
 void numStop() {
-  if (phonePickedUp) {
+  if (phonePickedUp && !isOnCall) {
+    if (isDialing) {
+      millisSinceLastNumStop = 0;
+    } else {
+      isDialing = true;
+    }
     phoneNumber += (pulses == 10) ? 0 : pulses;
     Serial.println(phoneNumber);
     pulses = 0;
+    millisSinceLastNumStop = millis();
   }
 }
 
@@ -34,6 +44,9 @@ void pickupPhone() {
 
 void hungupPhone() {
   phonePickedUp = false;
+  isDialing = false;
+  isOnCall = false;
+  millisSinceLastNumStop = 0;
   phoneNumber = "";
   pulses = 0;
 }
@@ -53,5 +66,10 @@ void loop() {
     pickupPhone();
   } else {
     hungupPhone();
+  }
+  if (phonePickedUp && isDialing && (millis() >= millisSinceLastNumStop+NUMBER_TIMEOUT_MS)) {
+    isDialing = false;
+    isOnCall = true;
+    Serial.println("CALLING...");
   }
 }
