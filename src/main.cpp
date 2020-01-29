@@ -31,12 +31,10 @@ void numStop() {
     } else {
       isDialing = true;
     }
-    // if (pulses > 0) {
       phoneNumber += (pulses == 10) ? 0 : pulses;
       Serial.println(phoneNumber);
       pulses = 0;
       millisSinceLastNumStop = millis();
-    // }
   }
 }
 
