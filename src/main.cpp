@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <SoftwareSerial.h>
 /*
   Rotary phone number counter using interrupts
   More info to come later
@@ -17,7 +16,6 @@ boolean phonePickedUp = false;
 boolean isDialing = false;
 boolean isOnCall = false;
 long millisSinceLastNumStop = 0;
-SoftwareSerial mySerial(7, 8);
 //-------------
 
 void pulseCounter() {
@@ -33,10 +31,12 @@ void numStop() {
     } else {
       isDialing = true;
     }
-    phoneNumber += (pulses == 10) ? 0 : pulses;
-    Serial.println(phoneNumber);
-    pulses = 0;
-    millisSinceLastNumStop = millis();
+    // if (pulses > 0) {
+      phoneNumber += (pulses == 10) ? 0 : pulses;
+      Serial.println(phoneNumber);
+      pulses = 0;
+      millisSinceLastNumStop = millis();
+    // }
   }
 }
 
@@ -53,32 +53,20 @@ void hungupPhone() {
   pulses = 0;
 }
 
-void updateSerial()
-{
-  delay(500);
-  while (Serial.available()) 
-  {
-    mySerial.write(Serial.read());//Forward what Serial received to Software Serial Port
-  }
-  while(mySerial.available()) 
-  {
-    Serial.write(mySerial.read());//Forward what Software Serial received to Serial Port
-  }
+void callNumber() {
+  String telNumCommand = "ATD+"+phoneNumber+";";
+  Serial.println("Calling with command: "+telNumCommand);
+  Serial.println(telNumCommand);
 }
 
 void setup() {
   Serial.begin(9600);
 
-  mySerial.begin(9600);
-  delay(1000);
-  updateSerial();
-  mySerial.println("AT"); //Handshaking with SIM900
-  updateSerial();
-  mySerial.println("ATD+ 860546993;");
-  updateSerial();
-  delay(10000);
-  mySerial.println("ATH");
-  updateSerial();
+  Serial.println("AT"); //Handshaking with SIM900
+  // delay(1000);
+  // Serial.println("ATD+3706;");
+  // delay(30000);
+  // Serial.println("ATH");
 
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
@@ -97,6 +85,7 @@ void loop() {
   if (phonePickedUp && isDialing && (millis() >= millisSinceLastNumStop+NUMBER_TIMEOUT_MS)) {
     isDialing = false;
     isOnCall = true;
-    Serial.println("CALLING...");
+    Serial.println("Calling...");
+    // callNumber();
   }
 }
