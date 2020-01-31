@@ -31,12 +31,10 @@ void numStop() {
     } else {
       isDialing = true;
     }
-    // if (pulses > 0) {
-      phoneNumber += (pulses == 10) ? 0 : pulses;
-      Serial.println(phoneNumber);
-      pulses = 0;
-      millisSinceLastNumStop = millis();
-    // }
+    phoneNumber += (pulses == 10) ? 0 : pulses;
+    Serial.println(phoneNumber);
+    pulses = 0;
+    millisSinceLastNumStop = millis();
   }
 }
 
@@ -47,26 +45,24 @@ void pickupPhone() {
 void hungupPhone() {
   phonePickedUp = false;
   isDialing = false;
-  isOnCall = false;
+  if (isOnCall) {
+    Serial.println("ATH");
+    isOnCall = false;
+  }
   millisSinceLastNumStop = 0;
   phoneNumber = "";
   pulses = 0;
 }
 
 void callNumber() {
-  String telNumCommand = "ATD+"+phoneNumber+";";
-  Serial.println("Calling with command: "+telNumCommand);
+  String telNumCommand = "ATD"+phoneNumber+";";
+  // String telNumCommand = "ATD86;";
   Serial.println(telNumCommand);
 }
 
 void setup() {
   Serial.begin(9600);
-
-  Serial.println("AT"); //Handshaking with SIM900
-  // delay(1000);
-  // Serial.println("ATD+3706;");
-  // delay(30000);
-  // Serial.println("ATH");
+  Serial.println("AT");
 
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
@@ -85,7 +81,6 @@ void loop() {
   if (phonePickedUp && isDialing && (millis() >= millisSinceLastNumStop+NUMBER_TIMEOUT_MS)) {
     isDialing = false;
     isOnCall = true;
-    Serial.println("Calling...");
-    // callNumber();
+    callNumber();
   }
 }
