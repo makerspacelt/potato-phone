@@ -15,6 +15,7 @@ int pulses = 0;
 boolean phonePickedUp = false;
 boolean isDialing = false;
 boolean isOnCall = false;
+boolean isCallIncomming = false;
 long millisSinceLastNumStop = 0;
 //-------------
 
@@ -38,8 +39,18 @@ void numStop() {
   }
 }
 
+void answerCall() {
+  if (!isOnCall) {
+    Serial.println("ATA");
+  }
+  isOnCall = true;
+}
+
 void pickupPhone() {
   phonePickedUp = true;
+  if (isCallIncomming) {
+    answerCall();
+  }
 }
 
 void hungupPhone() {
@@ -70,15 +81,21 @@ void setup() {
   pinMode(PHONE_PICKED_UP_PIN, INPUT);
   digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
   attachInterrupt(digitalPinToInterrupt(DIALPAD_PIN), pulseCounter, FALLING);
-  attachInterrupt(digitalPinToInterrupt(NUMBER_STOP_PIN), numStop, FALLING );
+  attachInterrupt(digitalPinToInterrupt(NUMBER_STOP_PIN), numStop, FALLING);
 }
 
 void loop() {
   if (Serial.available()) {
     if (Serial.find("RING")) { // incomming call
-      Serial.println("Incomming call...");
+      if (phonePickedUp) {
+        Serial.println("ATH"); // decline call if phone is picked up
+      } else {
+        Serial.println("Incomming call...");
+        isCallIncomming = true;
+      }
     } else if (Serial.find("NO CARRIER")) { // call ended
       Serial.print("Call ended");
+      isCallIncomming = false;
     }
   }
 
