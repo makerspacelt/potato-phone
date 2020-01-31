@@ -63,6 +63,7 @@ void callNumber() {
 void setup() {
   Serial.begin(9600);
   Serial.println("AT");
+  // delay(1000);
 
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
@@ -73,6 +74,14 @@ void setup() {
 }
 
 void loop() {
+  if (Serial.available()) {
+    if (Serial.find("RING")) { // incomming call
+      Serial.println("Incomming call...");
+    } else if (Serial.find("NO CARRIER")) { // call ended
+      Serial.print("Call ended");
+    }
+  }
+
   if (digitalRead(PHONE_PICKED_UP_PIN) == LOW) {
     pickupPhone();
   } else {
