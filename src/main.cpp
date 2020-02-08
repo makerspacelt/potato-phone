@@ -16,8 +16,12 @@ boolean phonePickedUp = false;
 boolean isDialing = false;
 boolean isOnCall = false;
 boolean isCalling = false;
-long millisSinceLastNumStop = 0;
+unsigned long millisSinceLastNumStop = 0;
 //-------------
+
+void flushSerialBuffer() {
+  Serial.readString(); // discard any data
+}
 
 void pulseCounter() {
   if (phonePickedUp && !isOnCall) {
@@ -42,6 +46,7 @@ void numStop() {
 void answerCall() {
   if (!isOnCall) {
     Serial.println("ATA");
+    // TODO: read status and react
   }
   isOnCall = true;
 }
@@ -59,6 +64,7 @@ void hungupPhone() {
   if (isOnCall) {
     Serial.println("ATH");
     isOnCall = false;
+    flushSerialBuffer();
   }
   millisSinceLastNumStop = 0;
   phoneNumber = "";
@@ -69,12 +75,14 @@ void callNumber() {
   String telNumCommand = "ATD"+phoneNumber+";";
   // telNumCommand = "ATD86;";
   Serial.println(telNumCommand);
+  // TODO: read status and react
 }
 
 void setup() {
   Serial.begin(9600);
   Serial.println("AT");
   delay(1000);
+  flushSerialBuffer();
   // callNumber();
 
   pinMode(DIALPAD_PIN, INPUT);
@@ -87,17 +95,19 @@ void setup() {
 
 void loop() {
   if (Serial.available()) {
-    if (Serial.findUntil("RING", "\r\n")) { // incomming call
+    String data = Serial.readString();
+    if (data.indexOf("RING") != -1) { // incomming call
       if (phonePickedUp) {
         Serial.println("ATH"); // decline call if phone is picked up
+        flushSerialBuffer();
       } else {
         Serial.println("Incomming call...");
         isCalling = true;
       }
-    } else if (Serial.findUntil("NO CARRIER", "\r\n")) { // call ended
+    } else if (data.indexOf("NO CARRIER") != -1) { // call ended
       Serial.println("Call ended");
       isCalling = false;
-    } else if (Serial.findUntil("BUSY", "\r\n")) { // call declined
+    } else if (data.indexOf("BUSY") != -1) { // call declined
       Serial.println("Call declined");
       isCalling = false;
     }
