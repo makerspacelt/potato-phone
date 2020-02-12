@@ -9,6 +9,7 @@ const int DIALPAD_PIN = 3;
 const int NUMBER_STOP_PIN = 2;
 const int PHONE_PICKED_UP_PIN = 4;
 const int NUMBER_TIMEOUT_MS = 4000;
+const int RING_TIMEOUT_MS = 6000;
 //-------------
 String phoneNumber = "";
 int pulses = 0;
@@ -17,10 +18,11 @@ boolean isDialing = false;
 boolean isOnCall = false;
 boolean isCalling = false;
 unsigned long millisSinceLastNumStop = 0;
+unsigned long millisSinceLastRing = 0;
 //-------------
 
 void flushSerialBuffer() {
-  Serial.readString(); // discard any data
+  Serial.readString();
 }
 
 void pulseCounter() {
@@ -46,9 +48,9 @@ void numStop() {
 void answerCall() {
   if (!isOnCall) {
     Serial.println("ATA");
-    // TODO: read status and react
   }
   isOnCall = true;
+  millisSinceLastRing = 0;
 }
 
 void pickupPhone() {
@@ -75,7 +77,10 @@ void callNumber() {
   String telNumCommand = "ATD"+phoneNumber+";";
   // telNumCommand = "ATD86;";
   Serial.println(telNumCommand);
-  // TODO: read status and react
+  String data = Serial.readString();
+  if (data.indexOf("OK") == -1) {
+    Serial.println("ATH"); // something wrong, best to hung up here
+  }
 }
 
 void setup() {
@@ -103,13 +108,16 @@ void loop() {
       } else {
         Serial.println("Incomming call...");
         isCalling = true;
+        millisSinceLastRing = millis();
       }
     } else if (data.indexOf("NO CARRIER") != -1) { // call ended
       Serial.println("Call ended");
       isCalling = false;
+      millisSinceLastRing = 0;
     } else if (data.indexOf("BUSY") != -1) { // call declined
       Serial.println("Call declined");
       isCalling = false;
+      millisSinceLastRing = 0;
     }
   }
 
@@ -118,9 +126,17 @@ void loop() {
   } else {
     hungupPhone();
   }
+
   if (phonePickedUp && isDialing && (millis() >= millisSinceLastNumStop+NUMBER_TIMEOUT_MS)) {
     isDialing = false;
     isOnCall = true;
     callNumber();
+  }
+
+  // this check is needed in case we missed reading when other party hung up
+  if (isCalling && (millis() >= millisSinceLastRing+RING_TIMEOUT_MS)) {
+    Serial.println("ATH");
+    isCalling = false;
+    flushSerialBuffer();
   }
 }
