@@ -10,5 +10,3 @@ TODO:
     * Surasti būdą kaip generuoti tonus - pakėlus ragelį, kol kviečia ir t.t.
         - Reikia surasti kokie tonai buvo naudojami telefonijoje hercais
     * Pritaikyti ragelio padėjimo mechanizmą, kad veiktų kaip mygtukas
-    * Padaryti GSM atsakymų skaitymą po to kai išsiunčiama komanda - ar gaunamas OK ar ERROR
-    * Kol vyksta pokalbis, tikrinti statusą ar buvo padėtas ragelis kas sekundę (AT+CPAS), nes ne visada pavyksta aptikti kada buvo padėtas ragelis
