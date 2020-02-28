@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <SoftwareSerial.h>
+
 /*
   Rotary phone number counter using interrupts
   More info to come later
@@ -19,10 +21,37 @@ boolean isOnCall = false;
 boolean isCalling = false;
 unsigned long millisSinceLastNumStop = 0;
 unsigned long millisSinceLastRing = 0;
+SoftwareSerial gsm(10, 11);
 //-------------
 
+bool isCallInProgress() {
+  gsm.println("AT+CPAS");
+  delay(1000);
+  while (gsm.available()) {
+    String data = gsm.readString();
+    Serial.println(data);
+    if (data.indexOf("+CPAS: 4") != -1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool isRinging() {
+  gsm.println("AT+CPAS");
+  delay(100);
+  while (gsm.available()) {
+    String data = gsm.readString();
+    Serial.println(data);
+    if (data.indexOf("+CPAS: 3") != -1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void flushSerialBuffer() {
-  Serial.readString();
+  gsm.readString();
 }
 
 void pulseCounter() {
@@ -47,9 +76,10 @@ void numStop() {
 
 void answerCall() {
   if (!isOnCall) {
-    Serial.println("ATA");
+    gsm.println("ATA");
   }
   isOnCall = true;
+  isCalling = false;
   millisSinceLastRing = 0;
 }
 
@@ -63,8 +93,9 @@ void pickupPhone() {
 void hungupPhone() {
   phonePickedUp = false;
   isDialing = false;
+  isCalling = false;
   if (isOnCall) {
-    Serial.println("ATH");
+    gsm.println("ATH");
     isOnCall = false;
     flushSerialBuffer();
   }
@@ -76,7 +107,7 @@ void hungupPhone() {
 void callNumber() {
   String telNumCommand = "ATD"+phoneNumber+";";
   // telNumCommand = "ATD86;";
-  Serial.println(telNumCommand);
+  gsm.println(telNumCommand);
   String data = Serial.readString();
   if (data.indexOf("OK") == -1) {
     Serial.println("ATH"); // something wrong, best to hung up here
@@ -85,7 +116,8 @@ void callNumber() {
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("AT");
+  gsm.begin(9600);
+  gsm.println("AT");
   delay(1000);
   flushSerialBuffer();
   // callNumber();
@@ -99,21 +131,23 @@ void setup() {
 }
 
 void loop() {
-  if (Serial.available()) {
-    String data = Serial.readString();
+  if (gsm.available()) {
+    String data = gsm.readString();
+    Serial.println(data);
     if (data.indexOf("RING") != -1) { // incomming call
-      if (phonePickedUp) {
-        Serial.println("ATH"); // decline call if phone is picked up
-        flushSerialBuffer();
-      } else {
+      // if (phonePickedUp) {
+      //   Serial.println("Phone already picked up");
+      //   Serial.println("ATH"); // decline call if phone is picked up
+      //   flushSerialBuffer();
+      // } else {
         Serial.println("Incomming call...");
         isCalling = true;
         millisSinceLastRing = millis();
-      }
+      // }
     } else if (data.indexOf("NO CARRIER") != -1) { // call ended
       Serial.println("Call ended");
-      isCalling = false;
-      millisSinceLastRing = 0;
+      // isCalling = false;
+      // millisSinceLastRing = 0;
     } else if (data.indexOf("BUSY") != -1) { // call declined
       Serial.println("Call declined");
       isCalling = false;
@@ -133,10 +167,18 @@ void loop() {
     callNumber();
   }
 
-  // this check is needed in case we missed reading when other party hung up
-  if (isCalling && (millis() >= millisSinceLastRing+RING_TIMEOUT_MS)) {
-    Serial.println("ATH");
+  // this check is needed in case we missed reading when other party hung up when we didn't answer
+  if (isCalling && !isRinging()) {
+    Serial.println("not calling");
+    gsm.println("ATH");
     isCalling = false;
     flushSerialBuffer();
   }
+
+  // if (isOnCall && !isCallInProgress()) {
+  //   Serial.println("Call not in progress");
+  //   gsm.println("ATH");
+  //   isOnCall = false;
+  //   flushSerialBuffer();
+  // }
 }
