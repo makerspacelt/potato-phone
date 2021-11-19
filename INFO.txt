@@ -12,3 +12,12 @@ TODO:
     * Pritaikyti ragelio padėjimo mechanizmą, kad veiktų kaip mygtukas
     * Integruoti varpelio valdymą su HBridge
     * Padaryti kad atmestų skambutį jeigu jau yra pakeltas ragelis
+    
+Info internete:
+    https://github.com/stephaneAG/SIM800L
+    https://github.com/cristiansteib/Sim800l/blob/master/Sim800l.cpp
+    https://www.google.com/search?client=firefox-b-d&q=at%2Bcpas
+    https://m2msupport.net/m2msupport/atcpas-phone-activity-status/
+    https://www.google.com/search?client=firefox-b-d&biw=1536&bih=718&sxsrf=ALeKk03Yv9ToFsCLPpC6dGz6IMNvc9IK2w%3A1582925071311&ei=D4VZXufMEuaj1fAPie2KmA8&q=arduino+sim800l+ring+pin&oq=arduino+sim800l+ring+pin&gs_l=psy-ab.3..33i22i29i30.23178.23983..24210...0.2..0.127.477.0j4......0....1..gws-wiz.......0i71j0i22i30.PBEgFiHPfiY&ved=0ahUKEwinkNO0l_XnAhXmURUIHYm2AvMQ4dUDCAo&uact=5
+    https://lastminuteengineers.com/sim800l-gsm-module-arduino-tutorial/
+    
