@@ -47,8 +47,8 @@ void setup()
   pinMode(EN_PIN_1, OUTPUT);
   pinMode(EN_PIN_2, OUTPUT);
   
-  digitalWrite(EN_PIN_1, HIGH); //aktyvuoti monster 1 kanalą
-//  digitalWrite(EN_PIN_2, HIGH);
+//  digitalWrite(EN_PIN_1, HIGH); //aktyvuoti monster 1 kanalą
+  digitalWrite(EN_PIN_2, HIGH);
 
 }
 

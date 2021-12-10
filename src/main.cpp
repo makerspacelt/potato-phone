@@ -9,7 +9,12 @@
 */
 
 const short RINGER_MOTOR_SPEED = 255;
-#define RINGER_ENABLE_PIN A1
+#define RINGER_ENABLE 11 //default: A0
+#define RINGER_CURRENT_SENSE A7  //default: A2
+#define RINGER_FWD 6 //default: 7
+#define RINGER_REV 7 //default: 8
+#define RINGER_PWM 5 //default 5
+
 
 //-------------
 const int DIALPAD_PIN = 3; // Yellow wire
@@ -32,7 +37,7 @@ Scheduler ts;
 void smackBell();
 boolean enableBell();
 void disableBell();
-Task ringTask (100 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enableBell, &disableBell);
+Task ringTask (20 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enableBell, &disableBell);
 
 //-------------
 String phoneNumber = "";
@@ -176,16 +181,26 @@ void call(int8_t pinIn) {
 boolean smackSide = true;
 void smackBell() {
   Serial.println("Smack");
-    digitalWrite(RINGER_ENABLE_PIN, smackSide ? HIGH : LOW);
-    smackSide = !smackSide;
+  smackSide = !smackSide;
+    if (smackSide) {
+      digitalWrite(RINGER_FWD, HIGH);
+      digitalWrite(RINGER_REV, LOW);
+    } else {
+      digitalWrite(RINGER_FWD, LOW);
+      digitalWrite(RINGER_REV, HIGH);
+    }
+  analogWrite(RINGER_PWM, RINGER_MOTOR_SPEED); 
 }
 
 boolean enableBell() {
   Serial.println("Enable bell");
+  digitalWrite(RINGER_ENABLE, HIGH);
+
   return true;
 }
 
 void disableBell() {
+  digitalWrite(RINGER_ENABLE, LOW);
   Serial.println("Disable bell");
 }
 
@@ -203,9 +218,13 @@ void setup() {
   pinMode(PHONE_PICKED_UP_PIN, INPUT);
   pinMode(12, INPUT);
 
-  pinMode(RINGER_ENABLE_PIN, OUTPUT);
+  pinMode(RINGER_ENABLE, OUTPUT);
+  pinMode(RINGER_FWD, OUTPUT);
+  pinMode(RINGER_REV, OUTPUT);
+  pinMode(RINGER_PWM, OUTPUT);
+  pinMode(RINGER_CURRENT_SENSE, OUTPUT);
 
-  digitalWrite(RINGER_ENABLE_PIN, LOW);
+  digitalWrite(RINGER_ENABLE, LOW);
 
   // digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
 
@@ -232,7 +251,7 @@ void loop() {
   buttonPickup.process(now);
 
   updateSerial();
-  delay(5);
+  // delay(1);
   // return;
   if (gsm.available()) {
     String data = gsm.readString();
