@@ -1,11 +1,15 @@
 #include <Arduino.h>
 #include <AltSoftSerial.h>
 #include <InputDebounce.h>
+#include <TaskScheduler.h>
 
 /*
   Rotary phone number counter using interrupts
   More info to come later
 */
+
+const short RINGER_MOTOR_SPEED = 255;
+#define RINGER_ENABLE_PIN A1
 
 //-------------
 const int DIALPAD_PIN = 3; // Yellow wire
@@ -18,9 +22,17 @@ const int DIAL_DEBOUNCE_DELAY = 20;
 const int BUTTON_DEBOUNCE_DELAY = 10;
 //-------------
 
+
 static InputDebounce dialEnable;
 static InputDebounce dialPulse;
 static InputDebounce buttonCall;
+static InputDebounce buttonPickup;
+
+Scheduler ts;
+void smackBell();
+boolean enableBell();
+void disableBell();
+Task ringTask (100 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enableBell, &disableBell);
 
 //-------------
 String phoneNumber = "";
@@ -29,7 +41,7 @@ boolean phonePickedUp = false;
 boolean isDialing = false;
 boolean isOnCall = false;
 boolean isCalling = false;
-unsigned long millisSinceLastNumStop = 0;
+unsigned long millisAtLastNumStop = 0;
 unsigned long millisSinceLastRing = 0;
 AltSoftSerial gsm(9, 8);
 //-------------
@@ -75,14 +87,14 @@ void endDialPulseCount(uint8_t pinIn) {
   // Serial.println("Num stop called");
   // if (phonePickedUp && !isOnCall) {
     if (isDialing) {
-      millisSinceLastNumStop = 0;
+      millisAtLastNumStop = 0;
     } else {
       isDialing = true;
     }
     phoneNumber += (pulses == 10) ? 0 : pulses;
     Serial.println("Phone number: " + phoneNumber);
     pulses = 0;
-    millisSinceLastNumStop = millis();
+    millisAtLastNumStop = millis();
   // }
 }
 
@@ -104,20 +116,20 @@ void answerCall() {
   millisSinceLastRing = 0;
 }
 
-void pickupPhone() {
-  if(!phonePickedUp) {
-    Serial.println("Pickup phone");
-  }
+void pickupPhone(uint8_t pinIn) {
+  Serial.println("Pickup phone");
+
   phonePickedUp = true;
   if (isCalling) {
     answerCall();
   }
+  phoneNumber = "";
+  pulses = 0;
 }
 
-void hungupPhone() {
-  if (phonePickedUp) {
-    Serial.println("Hungup phone");
-  }
+void hungupPhone(uint8_t pinIn) {
+  Serial.println("Hungup phone");
+
   phonePickedUp = false;
   isDialing = false;
   isCalling = false;
@@ -126,7 +138,7 @@ void hungupPhone() {
     isOnCall = false;
     flushSerialBuffer();
   }
-  millisSinceLastNumStop = 0;
+  millisAtLastNumStop = 0;
   phoneNumber = "";
   pulses = 0;
 }
@@ -153,12 +165,28 @@ void pulseDial(int8_t pinIn) {
 }
 
 void call(int8_t pinIn) {
-  if(phoneNumber.length() != 10) {
+  if(phoneNumber.length() >= 10) {
     callNumber();
   } else {
     Serial.println("Number cleared");
   }
   phoneNumber = "";
+}
+
+boolean smackSide = true;
+void smackBell() {
+  Serial.println("Smack");
+    digitalWrite(RINGER_ENABLE_PIN, smackSide ? HIGH : LOW);
+    smackSide = !smackSide;
+}
+
+boolean enableBell() {
+  Serial.println("Enable bell");
+  return true;
+}
+
+void disableBell() {
+  Serial.println("Disable bell");
 }
 
 void setup() {
@@ -175,22 +203,25 @@ void setup() {
   pinMode(PHONE_PICKED_UP_PIN, INPUT);
   pinMode(12, INPUT);
 
-  digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
+  pinMode(RINGER_ENABLE_PIN, OUTPUT);
+
+  digitalWrite(RINGER_ENABLE_PIN, LOW);
+
+  // digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
 
   dialEnable.registerCallbacks(NULL, endDialPulseCount);
   dialPulse.registerCallbacks(pulseDial, NULL);
   buttonCall.registerCallbacks(call, NULL);
+  buttonPickup.registerCallbacks(pickupPhone, hungupPhone, NULL, NULL);
+
 
   dialEnable.setup(NUMBER_STOP_PIN, DIAL_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES, NULL, InputDebounce::ST_NORMALLY_CLOSED);
   dialPulse.setup(DIALPAD_PIN, DIAL_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES);
   buttonCall.setup(12, BUTTON_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES, NULL, InputDebounce::ST_NORMALLY_CLOSED);
+  buttonPickup.setup(PHONE_PICKED_UP_PIN, InputDebounce::PIM_EXT_PULL_UP_RES);
 
-  // attachInterrupt(digitalPinToInterrupt(12), buttonPushed, RISING);
-  // attachInterrupt(digitalPinToInterrupt(DIALPAD_PIN), pulseCounter, FALLING);
-  // attachInterrupt(digitalPinToInterrupt(NUMBER_STOP_PIN), numStop, FALLING); 
+  ts.startNow();
 }
-
-int tmp1 = 0;
 
 void loop() {
   long now = millis();
@@ -198,20 +229,11 @@ void loop() {
   dialEnable.process(now);
   dialPulse.process(now);
   buttonCall.process(now);
+  buttonPickup.process(now);
 
-  // int w = gsm.println("derp");
-  // Serial.print("Written: ");
-  // Serial.println(w);
-  // delay(500);
   updateSerial();
-  if(tmp1++ % 10 == 0) {
-    int bs = digitalRead(12);
-    String bss = "BS->" + String(bs);
-    bss = bss + "<-BS";
-    // Serial.println(bss);
-  }
   delay(5);
-  return;
+  // return;
   if (gsm.available()) {
     String data = gsm.readString();
     Serial.println(data);
@@ -236,13 +258,7 @@ void loop() {
     }
   }
 
-  if (digitalRead(PHONE_PICKED_UP_PIN) == LOW) {
-    pickupPhone();
-  } else {
-    hungupPhone();
-  }
-
-  if (phonePickedUp && isDialing && (millis() >= millisSinceLastNumStop+NUMBER_TIMEOUT_MS)) {
+  if (phonePickedUp && isDialing && (millis() >= millisAtLastNumStop + NUMBER_TIMEOUT_MS)) {
     isDialing = false;
     isOnCall = true;
     callNumber();
@@ -255,6 +271,16 @@ void loop() {
     isCalling = false;
     flushSerialBuffer();
   }
+
+  if(ringTask.isEnabled() != isCalling) {
+    if(isCalling) {
+      ringTask.enable();
+    } else {
+      ringTask.disable();
+    }
+  }
+
+  ts.execute();
 
   // if (isOnCall && !isCallInProgress()) {
   //   Serial.println("Call not in progress");
