@@ -37,17 +37,26 @@ Scheduler ts;
 void smackBell();
 boolean enableBell();
 void disableBell();
-Task ringTask (20 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enableBell, &disableBell);
+Task ringTask(30 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enableBell, &disableBell);
+
+void updateGsmState();
+Task updateGsmStageTask(100 * TASK_MILLISECOND, TASK_FOREVER, &updateGsmState, &ts);
+
+void updatePhoneState();
+Task updatePhoneStateTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updatePhoneState, &ts);
 
 //-------------
 String phoneNumber = "";
 int pulses = 0;
+
 boolean phonePickedUp = false;
 boolean isDialing = false;
 boolean isOnCall = false;
 boolean isCalling = false;
+
 unsigned long millisAtLastNumStop = 0;
 unsigned long millisSinceLastRing = 0;
+
 AltSoftSerial gsm(9, 8);
 //-------------
 
@@ -107,9 +116,9 @@ void updateSerial() {
   while (Serial.available()) {
     gsm.write(Serial.read());
   }
-  while (gsm.available()) {
-    Serial.write(gsm.read());
-  }
+  // while (gsm.available()) {
+  //   Serial.write(gsm.read());
+  // }
 }
 
 void answerCall() {
@@ -204,8 +213,66 @@ void disableBell() {
   Serial.println("Disable bell");
 }
 
+void updateGsmState() {
+  // Serial.println("update gsm state");
+
+  if (gsm.available()) {
+    String data = gsm.readString();
+    Serial.println(data);
+    if (data.indexOf("RING") != -1) { // incomming call
+      if (phonePickedUp) {
+        Serial.println("Phone already picked up");
+        Serial.println("ATH"); // decline call if phone is picked up
+        flushSerialBuffer();
+      } else {
+        Serial.println("Incomming call...");
+        isCalling = true;
+        millisSinceLastRing = millis();
+      }
+    } else if (data.indexOf("NO CARRIER") != -1) { // call ended
+      Serial.println("Call ended");
+      isCalling = false;
+      millisSinceLastRing = 0;
+    } else if (data.indexOf("BUSY") != -1) { // call declined
+      Serial.println("Call declined");
+      isCalling = false;
+      millisSinceLastRing = 0;
+    }
+  }
+}
+
+
+void updatePhoneState() {
+  // Serial.println("update phone state");
+
+  if (phonePickedUp && isDialing && (millis() >= millisAtLastNumStop + NUMBER_TIMEOUT_MS)) {
+    isDialing = false;
+    isOnCall = true;
+    callNumber();
+  }
+
+  // this check is needed in case we missed reading when other party hung up when we didn't answer
+  // if (isCalling && !isRinging()) {
+  //   Serial.println("not calling");
+  //   gsm.println("ATH");
+  //   isCalling = false;
+  //   flushSerialBuffer();
+  // }
+
+  if (ringTask.isEnabled() != isCalling) {
+    Serial.println("Set ringing to " + isCalling);
+    if(isCalling) {
+      ringTask.enable();
+    } else {
+      ringTask.disable();
+    }
+  }
+}
+
 void setup() {
   Serial.begin(9600);
+
+  gsm.setTimeout(10);
   gsm.begin(9600);
   // delay(500);
   // gsm.println("AT");
@@ -240,6 +307,9 @@ void setup() {
   buttonPickup.setup(PHONE_PICKED_UP_PIN, InputDebounce::PIM_EXT_PULL_UP_RES);
 
   ts.startNow();
+
+  updateGsmStageTask.enable();
+  updatePhoneStateTask.enable();
 }
 
 void loop() {
@@ -252,52 +322,11 @@ void loop() {
 
   updateSerial();
   // delay(1);
+
   // return;
-  if (gsm.available()) {
-    String data = gsm.readString();
-    Serial.println(data);
-    if (data.indexOf("RING") != -1) { // incomming call
-      if (phonePickedUp) {
-        Serial.println("Phone already picked up");
-        Serial.println("ATH"); // decline call if phone is picked up
-        flushSerialBuffer();
-      } else {
-        Serial.println("Incomming call...");
-        isCalling = true;
-        millisSinceLastRing = millis();
-      }
-    } else if (data.indexOf("NO CARRIER") != -1) { // call ended
-      Serial.println("Call ended");
-      isCalling = false;
-      millisSinceLastRing = 0;
-    } else if (data.indexOf("BUSY") != -1) { // call declined
-      Serial.println("Call declined");
-      isCalling = false;
-      millisSinceLastRing = 0;
-    }
-  }
+  // updateGsmState();
 
-  if (phonePickedUp && isDialing && (millis() >= millisAtLastNumStop + NUMBER_TIMEOUT_MS)) {
-    isDialing = false;
-    isOnCall = true;
-    callNumber();
-  }
-
-  // this check is needed in case we missed reading when other party hung up when we didn't answer
-  if (isCalling && !isRinging()) {
-    Serial.println("not calling");
-    gsm.println("ATH");
-    isCalling = false;
-    flushSerialBuffer();
-  }
-
-  if(ringTask.isEnabled() != isCalling) {
-    if(isCalling) {
-      ringTask.enable();
-    } else {
-      ringTask.disable();
-    }
-  }
+  // updatePhoneState();
 
   ts.execute();
 
