@@ -9,6 +9,7 @@
 */
 
 const short RINGER_MOTOR_SPEED = 255;
+#define TONE_ENABLE 13
 #define RINGER_ENABLE 11 //default: A0
 #define RINGER_CURRENT_SENSE A7  //default: A2
 #define RINGER_FWD 6 //default: 7
@@ -34,6 +35,10 @@ enum PAS {
   READY,  UNAVAILABLE, UNKNOWN,  RINGING,  CALL_IN_PROGRESS,  ASLEEP
 };
 
+enum ToneMode {
+  OFF, WAITING_FOR_ANSWER, CALLED_NUMBER_BUSY
+};
+
 static InputDebounce dialEnable;
 static InputDebounce dialPulse;
 static InputDebounce buttonCall;
@@ -47,6 +52,10 @@ Task ringTask(30 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enab
 
 void updateGsmState();
 Task updateGsmStageTask(GSM_UPDATE_RATE_DT * TASK_MILLISECOND, TASK_FOREVER, &updateGsmState, &ts);
+
+ToneMode toneMode = OFF;
+void updateTone();
+Task updateToneTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateTone, &ts);
 
 //-------------
 String phoneNumber = "";
@@ -201,8 +210,10 @@ void updateGsmState() {
   boolean updatedFromGsm = false;
   if (gsm.available()) {
     String data = gsm.readString();
-    // if(!(data.length() > 0)) {
-      Serial.println(data + " " + millis());
+    data.trim();
+    // if(data.length() > 0) {
+      // Serial.println(data + " " + millis());
+      // Serial.println(data);
     // }
     if (data.indexOf("RING") != -1) { 
       updatedFromGsm = true;// incomming call
@@ -215,14 +226,18 @@ void updateGsmState() {
       }
     }/* else if (data.indexOf("NO CARRIER") != -1) { // call ended
       Serial.println("Call ended");
-    } else if (data.indexOf("BUSY") != -1) { // call declined
+    }*/ else if (data.indexOf("BUSY") != -1) { // call declined
       Serial.println("Call declined");
-    } */else if (data.indexOf("+CPAS") != -1) {
+      toneMode = CALLED_NUMBER_BUSY;
+    } else if (data.indexOf("+CPAS") != -1) {
       updatedFromGsm = true;
       waitingForStatusUpdate = false;
       lastStatusUpdateReceivedAt = millis();
       if(data.indexOf("0") != -1) {
         phoneStatus = READY;
+        if(toneMode != CALLED_NUMBER_BUSY) {
+          toneMode = OFF;
+        }
       } else if (data.indexOf("1") != -1) {
         phoneStatus = UNAVAILABLE;
       } else if (data.indexOf("2") != -1) {
@@ -231,6 +246,7 @@ void updateGsmState() {
         phoneStatus = RINGING;
       } else if (data.indexOf("4") != -1) {
         phoneStatus = CALL_IN_PROGRESS;
+        toneMode = WAITING_FOR_ANSWER;
       } else if (data.indexOf("5") != -1) {
         phoneStatus = ASLEEP;
       }
@@ -269,6 +285,76 @@ void updateGsmState() {
   }
 }
 
+int toneState = LOW;
+ToneMode prevMode = OFF;
+
+long toneStarted = 0;
+int busyTonePlayedTimes = 0;
+
+const long WAITING_TONE_TONE_LENGTH = 1500;
+const long WAITING_TONE_SILENCE_LENGT = 1000;
+const long WAITING_TONE_PERIOD = WAITING_TONE_TONE_LENGTH + WAITING_TONE_SILENCE_LENGT;
+
+const int BUSY_TONE_COUNT = 3;
+const long BUSY_TONE_TONE_LENGTH = 1000;
+const long BUSY_TONE_SILENCE_LENGTH = 500;
+const long BUSY_TONE_PERIOD = BUSY_TONE_TONE_LENGTH + BUSY_TONE_SILENCE_LENGTH;
+
+void updateTone() {
+  if(prevMode != toneMode) {
+    Serial.println("New tone mode");
+    prevMode = toneMode;
+    toneState = LOW;
+    busyTonePlayedTimes = 0;
+    toneStarted = millis();
+  }
+  long now = millis();
+  if(toneMode == OFF) {
+    if(toneState == HIGH) {
+      toneState = LOW;
+    }
+  } else if (toneMode == WAITING_FOR_ANSWER) {
+    int currentPeriod = (now - toneStarted) % WAITING_TONE_PERIOD;
+    toneState = currentPeriod > WAITING_TONE_TONE_LENGTH ? LOW : HIGH;
+  } else if (toneMode == CALLED_NUMBER_BUSY) {
+    int timesPlayed = (now - toneStarted) / BUSY_TONE_PERIOD;
+    if (timesPlayed > BUSY_TONE_COUNT) {
+      toneState = LOW;
+      toneMode = OFF;
+    } else {
+      int currentPeriod = (now - toneStarted) % BUSY_TONE_PERIOD;
+      toneState = currentPeriod > BUSY_TONE_TONE_LENGTH ? LOW : HIGH;
+    }
+  }
+
+  // switch (toneMode) {
+  //   case OFF:
+  //     if(toneState == HIGH) {
+  //       toneState = LOW;
+  //     }
+  //     break;
+  //   case WAITING_FOR_ANSWER:
+  //     int currentPeriod = (now - toneStarted) % WAITING_TONE_PERIOD;
+  //     toneState = currentPeriod > WAITING_TONE_TONE_LENGTH ? LOW : HIGH;
+  //     break;
+  //   case CALLED_NUMBER_BUSY:
+  //     int timesPlayed = (now - toneStarted) / BUSY_TONE_PERIOD;
+  //     if (timesPlayed > BUSY_TONE_COUNT) {
+  //       toneState = LOW;
+  //       toneMode = OFF;
+  //     } else {
+  //       int currentPeriod = (now - toneStarted) % BUSY_TONE_PERIOD;
+  //       toneState = currentPeriod > BUSY_TONE_TONE_LENGTH ? LOW : HIGH;
+  //     }
+  //     break;
+  // }
+
+  Serial.print(toneMode);
+  Serial.print(" ");
+  Serial.println(toneState);
+  digitalWrite(TONE_ENABLE, toneState);
+}
+
 void setup() {
   Serial.begin(9600);
 
@@ -285,12 +371,15 @@ void setup() {
   pinMode(PHONE_PICKED_UP_PIN, INPUT);
   pinMode(12, INPUT);
 
+  pinMode(TONE_ENABLE, OUTPUT);
+
   pinMode(RINGER_ENABLE, OUTPUT);
   pinMode(RINGER_FWD, OUTPUT);
   pinMode(RINGER_REV, OUTPUT);
   pinMode(RINGER_PWM, OUTPUT);
   pinMode(RINGER_CURRENT_SENSE, OUTPUT);
 
+  digitalWrite(TONE_ENABLE, LOW);
   digitalWrite(RINGER_ENABLE, LOW);
 
   // digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
@@ -309,6 +398,7 @@ void setup() {
   ts.startNow();
 
   updateGsmStageTask.enable();
+  updateToneTask.enable();
 }
 
 void loop() {
