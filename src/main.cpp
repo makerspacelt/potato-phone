@@ -9,18 +9,18 @@
 */
 
 const short RINGER_MOTOR_SPEED = 255;
-#define TONE_ENABLE 13
-#define RINGER_ENABLE 11 //default: A0
-#define RINGER_CURRENT_SENSE A7  //default: A2
+#define TONE_ENABLE 12
+#define RINGER_ENABLE 4 //default: A0
+#define RINGER_CURRENT_SENSE 3  //default: A2
 #define RINGER_FWD 6 //default: 7
 #define RINGER_REV 7 //default: 8
 #define RINGER_PWM 5 //default 5
 
 
 //-------------
-const int DIALPAD_PIN = 3; // Yellow wire
-const int NUMBER_STOP_PIN = 2; // Blue wire
-const int PHONE_PICKED_UP_PIN = 4;
+#define DIALPAD_PIN 11 // Yellow wire
+#define NUMBER_STOP_PIN 10 // Blue wire
+#define PHONE_PICKED_UP_PIN 2
 const int NUMBER_TIMEOUT_MS = 4000;
 const int RING_TIMEOUT_MS = 6000;
 
@@ -36,12 +36,11 @@ enum PAS {
 };
 
 enum ToneMode {
-  OFF, WAITING_FOR_ANSWER, CALLED_NUMBER_BUSY
+  OFF, ON, WAITING_FOR_ANSWER, CALLED_NUMBER_BUSY
 };
 
 static InputDebounce dialEnable;
 static InputDebounce dialPulse;
-static InputDebounce buttonCall;
 static InputDebounce buttonPickup;
 
 Scheduler ts;
@@ -61,9 +60,11 @@ Task updateToneTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateTone, &ts);
 String phoneNumber = "";
 int pulses = 0;
 
+boolean triedDialing = false;
+boolean triedCalling = false;
+
 boolean phonePickedUp = false;
 boolean isDialing = false;
-boolean isOnCall = false;
 
 PAS phoneStatus = READY;
 
@@ -89,17 +90,15 @@ void pulseCounter() {
 
 void endDialPulseCount(uint8_t pinIn) {
   // Serial.println("Num stop called");
-  // if (phonePickedUp && !isOnCall) {
-    if (isDialing) {
-      millisAtLastNumStop = 0;
-    } else {
-      isDialing = true;
-    }
-    phoneNumber += (pulses == 10) ? 0 : pulses;
-    Serial.println("Phone number: " + phoneNumber);
-    pulses = 0;
-    millisAtLastNumStop = millis();
-  // }
+  if (isDialing) {
+    millisAtLastNumStop = 0;
+  } else {
+    isDialing = true;
+  }
+  phoneNumber += (pulses == 10) ? 0 : pulses;
+  Serial.println("Phone number: " + phoneNumber);
+  pulses = 0;
+  millisAtLastNumStop = millis();
 }
 
 void updateSerial() {
@@ -115,13 +114,17 @@ void answerCall() {
   if (phoneStatus == RINGING) {
     gsm.println("ATA");
   }
-  // isOnCall = true;
 }
 
 void pickupPhone(uint8_t pinIn) {
   Serial.println("Pickup phone");
 
   phonePickedUp = true;
+  if (phoneStatus == READY) {
+    toneMode = ON;
+  } else {
+    toneMode = OFF;
+  }
   if (phoneStatus == RINGING) {
     answerCall();
   }
@@ -133,10 +136,12 @@ void hungupPhone(uint8_t pinIn) {
   Serial.println("Hungup phone");
 
   phonePickedUp = false;
+  toneMode = OFF;
   isDialing = false;
+  triedDialing = false;
+  triedCalling = false;
   if (phoneStatus == CALL_IN_PROGRESS) {
     gsm.println("ATH");
-    isOnCall = false;
     flushSerialBuffer();
   }
   millisAtLastNumStop = 0;
@@ -145,6 +150,11 @@ void hungupPhone(uint8_t pinIn) {
 }
 
 void callNumber() {
+  if (triedCalling) {
+    return;
+  }
+  triedCalling = true;
+
   String telNumCommand = "ATD"+phoneNumber+";";
   // telNumCommand = "ATD867961606;";
   Serial.println("Calling: " + telNumCommand);
@@ -162,6 +172,8 @@ void startDialPulseCount(uint8_t pinIn) {
 
 void pulseDial(int8_t pinIn) {
   Serial.println("Pulse dial");
+  toneMode = OFF;
+  triedDialing = true;
   pulses++;
 }
 
@@ -213,13 +225,13 @@ void updateGsmState() {
     data.trim();
     // if(data.length() > 0) {
       // Serial.println(data + " " + millis());
-      // Serial.println(data);
+      Serial.println(data);
     // }
     if (data.indexOf("RING") != -1) { 
       updatedFromGsm = true;// incomming call
       if (phonePickedUp) {
         Serial.println("Phone already picked up");
-        // Serial.println("ATH"); // decline call if phone is picked up
+        gsm.println("ATH"); // decline call if phone is picked up
         flushSerialBuffer();
       } else {
         Serial.println("Incomming call...");
@@ -235,20 +247,24 @@ void updateGsmState() {
       lastStatusUpdateReceivedAt = millis();
       if(data.indexOf("0") != -1) {
         phoneStatus = READY;
-        if(toneMode != CALLED_NUMBER_BUSY) {
-          toneMode = OFF;
-        }
+        // if (!triedDialing && phonePickedUp) {
+        //   toneMode = ON;
+        // }
       } else if (data.indexOf("1") != -1) {
         phoneStatus = UNAVAILABLE;
+        toneMode = OFF;
       } else if (data.indexOf("2") != -1) {
         phoneStatus = UNKNOWN;
+        toneMode = OFF;
       } else if (data.indexOf("3") != -1) {
         phoneStatus = RINGING;
+        toneMode = OFF;
       } else if (data.indexOf("4") != -1) {
         phoneStatus = CALL_IN_PROGRESS;
-        toneMode = WAITING_FOR_ANSWER;
+        toneMode = OFF;
       } else if (data.indexOf("5") != -1) {
         phoneStatus = ASLEEP;
+        toneMode = OFF;
       }
     }
   } else if (!waitingForStatusUpdate || ((millis() - lastStatusUpdateReceivedAt) > STATUS_UPDATE_TIMEOUT)) {
@@ -263,7 +279,6 @@ void updateGsmState() {
 
   if (phonePickedUp && isDialing && (millis() >= millisAtLastNumStop + NUMBER_TIMEOUT_MS)) {
     isDialing = false;
-    isOnCall = true;
     callNumber();
   }
 
@@ -302,7 +317,7 @@ const long BUSY_TONE_PERIOD = BUSY_TONE_TONE_LENGTH + BUSY_TONE_SILENCE_LENGTH;
 
 void updateTone() {
   if(prevMode != toneMode) {
-    Serial.println("New tone mode");
+    // Serial.println("New tone mode");
     prevMode = toneMode;
     toneState = LOW;
     busyTonePlayedTimes = 0;
@@ -310,15 +325,15 @@ void updateTone() {
   }
   long now = millis();
   if(toneMode == OFF) {
-    if(toneState == HIGH) {
-      toneState = LOW;
-    }
+    toneState = LOW;
+  } else if (toneMode == ON) {
+    toneState = HIGH;
   } else if (toneMode == WAITING_FOR_ANSWER) {
     int currentPeriod = (now - toneStarted) % WAITING_TONE_PERIOD;
     toneState = currentPeriod > WAITING_TONE_TONE_LENGTH ? LOW : HIGH;
   } else if (toneMode == CALLED_NUMBER_BUSY) {
     int timesPlayed = (now - toneStarted) / BUSY_TONE_PERIOD;
-    if (timesPlayed > BUSY_TONE_COUNT) {
+    if (timesPlayed >= BUSY_TONE_COUNT) {
       toneState = LOW;
       toneMode = OFF;
     } else {
@@ -327,31 +342,9 @@ void updateTone() {
     }
   }
 
-  // switch (toneMode) {
-  //   case OFF:
-  //     if(toneState == HIGH) {
-  //       toneState = LOW;
-  //     }
-  //     break;
-  //   case WAITING_FOR_ANSWER:
-  //     int currentPeriod = (now - toneStarted) % WAITING_TONE_PERIOD;
-  //     toneState = currentPeriod > WAITING_TONE_TONE_LENGTH ? LOW : HIGH;
-  //     break;
-  //   case CALLED_NUMBER_BUSY:
-  //     int timesPlayed = (now - toneStarted) / BUSY_TONE_PERIOD;
-  //     if (timesPlayed > BUSY_TONE_COUNT) {
-  //       toneState = LOW;
-  //       toneMode = OFF;
-  //     } else {
-  //       int currentPeriod = (now - toneStarted) % BUSY_TONE_PERIOD;
-  //       toneState = currentPeriod > BUSY_TONE_TONE_LENGTH ? LOW : HIGH;
-  //     }
-  //     break;
-  // }
-
-  Serial.print(toneMode);
-  Serial.print(" ");
-  Serial.println(toneState);
+  // Serial.print(toneMode);
+  // Serial.print(" ");
+  // Serial.println(toneState);
   digitalWrite(TONE_ENABLE, toneState);
 }
 
@@ -369,7 +362,6 @@ void setup() {
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
   pinMode(PHONE_PICKED_UP_PIN, INPUT);
-  pinMode(12, INPUT);
 
   pinMode(TONE_ENABLE, OUTPUT);
 
@@ -386,13 +378,11 @@ void setup() {
 
   dialEnable.registerCallbacks(NULL, endDialPulseCount);
   dialPulse.registerCallbacks(pulseDial, NULL);
-  buttonCall.registerCallbacks(call, NULL);
   buttonPickup.registerCallbacks(pickupPhone, hungupPhone, NULL, NULL);
 
 
   dialEnable.setup(NUMBER_STOP_PIN, DIAL_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES, NULL, InputDebounce::ST_NORMALLY_CLOSED);
   dialPulse.setup(DIALPAD_PIN, DIAL_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES);
-  buttonCall.setup(12, BUTTON_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES, NULL, InputDebounce::ST_NORMALLY_CLOSED);
   buttonPickup.setup(PHONE_PICKED_UP_PIN, InputDebounce::PIM_EXT_PULL_UP_RES);
 
   ts.startNow();
@@ -406,7 +396,6 @@ void loop() {
 
   dialEnable.process(now);
   dialPulse.process(now);
-  buttonCall.process(now);
   buttonPickup.process(now);
 
   updateSerial();
