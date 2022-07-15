@@ -10,11 +10,8 @@
 
 const short RINGER_MOTOR_SPEED = 255;
 #define TONE_ENABLE 12
-#define RINGER_ENABLE 4 //default: A0
-#define RINGER_CURRENT_SENSE 3  //default: A2
-#define RINGER_FWD 6 //default: 7
-#define RINGER_REV 7 //default: 8
-#define RINGER_PWM 5 //default 5
+#define RINGER_ENABLE 4
+#define STATUS_LED 3
 
 
 //-------------
@@ -44,10 +41,6 @@ static InputDebounce dialPulse;
 static InputDebounce buttonPickup;
 
 Scheduler ts;
-void smackBell();
-boolean enableBell();
-void disableBell();
-Task ringTask(30 * TASK_MILLISECOND, TASK_FOREVER, &smackBell, &ts, false, &enableBell, &disableBell);
 
 void updateGsmState();
 Task updateGsmStageTask(GSM_UPDATE_RATE_DT * TASK_MILLISECOND, TASK_FOREVER, &updateGsmState, &ts);
@@ -55,6 +48,10 @@ Task updateGsmStageTask(GSM_UPDATE_RATE_DT * TASK_MILLISECOND, TASK_FOREVER, &up
 ToneMode toneMode = OFF;
 void updateTone();
 Task updateToneTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateTone, &ts);
+
+unsigned long statusLedLastUpdateTimestamp = 0;
+void updateStatusLed();
+Task updateStatusLedTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateStatusLed,  &ts);
 
 //-------------
 String phoneNumber = "";
@@ -65,6 +62,7 @@ boolean triedCalling = false;
 
 boolean phonePickedUp = false;
 boolean isDialing = false;
+boolean isBellEnabled = false;
 
 PAS phoneStatus = READY;
 
@@ -186,29 +184,15 @@ void call(int8_t pinIn) {
   phoneNumber = "";
 }
 
-boolean smackSide = true;
-void smackBell() {
-  // Serial.println("Smack");
-  smackSide = !smackSide;
-    if (smackSide) {
-      digitalWrite(RINGER_FWD, HIGH);
-      digitalWrite(RINGER_REV, LOW);
-    } else {
-      digitalWrite(RINGER_FWD, LOW);
-      digitalWrite(RINGER_REV, HIGH);
-    }
-  analogWrite(RINGER_PWM, RINGER_MOTOR_SPEED); 
-}
-
-boolean enableBell() {
+void enableBell() {
   Serial.println("Enable bell");
+  isBellEnabled = true;
   digitalWrite(RINGER_ENABLE, HIGH);
-
-  return true;
 }
 
 void disableBell() {
   digitalWrite(RINGER_ENABLE, LOW);
+  isBellEnabled = false;
   Serial.println("Disable bell");
 }
 
@@ -290,12 +274,12 @@ void updateGsmState() {
   //   flushSerialBuffer();
   // }
 
-  if (ringTask.isEnabled() != (phoneStatus == RINGING)) {
+  if (isBellEnabled != (phoneStatus == RINGING)) {
     Serial.println("Set ringing to " + (phoneStatus == RINGING));
     if(phoneStatus == RINGING) {
-      ringTask.enable();
+      enableBell();
     } else {
-      ringTask.disable();
+      disableBell();
     }
   }
 }
@@ -348,6 +332,58 @@ void updateTone() {
   digitalWrite(TONE_ENABLE, toneState);
 }
 
+byte statusLedPhase = 0;
+short statusLedTimeRemaining = 0;
+
+const short statusReadyPhases[] = {2000, 100};
+const short statusUnavailablePhases[] = {100, 100};
+const short statusUnknownPhases[] = {500, 100};
+const short statusRingingPhases[] = {100, 1000};
+const short statusCallInProgssPhases[] = {1000, 100, 100, 100};
+const short statusAsleepPhases[] = {4000, 1000, 100, 100};
+
+void updateNPhaseLedStatus(byte phaseCount, const short phases[]) {
+  statusLedPhase++;
+  if (statusLedPhase >= phaseCount) {
+    statusLedPhase = 0;
+  }
+
+  digitalWrite(STATUS_LED, statusLedPhase % 2 == 0 ? LOW : HIGH);
+  statusLedTimeRemaining = phases[statusLedPhase];
+}
+
+void updateStatusLed() {
+  unsigned long lastUpdate = statusLedLastUpdateTimestamp;
+  statusLedLastUpdateTimestamp = millis();
+  unsigned short dt = statusLedLastUpdateTimestamp - lastUpdate;
+  statusLedTimeRemaining -= dt;
+  if (statusLedTimeRemaining > 0) {
+    return;
+  }
+
+  switch (phoneStatus) {
+    case READY:
+      updateNPhaseLedStatus(2, statusReadyPhases);
+    break;
+    case UNAVAILABLE:
+      updateNPhaseLedStatus(2, statusUnavailablePhases);
+    break;
+    case UNKNOWN:
+      updateNPhaseLedStatus(2, statusUnknownPhases);
+    break;
+    case RINGING:
+      updateNPhaseLedStatus(2, statusRingingPhases);
+    break;
+    case CALL_IN_PROGRESS:
+      updateNPhaseLedStatus(4, statusCallInProgssPhases);
+    break;
+    case ASLEEP:
+      updateNPhaseLedStatus(4, statusAsleepPhases);
+    break;
+  }
+
+}
+
 void setup() {
   Serial.begin(9600);
 
@@ -366,10 +402,7 @@ void setup() {
   pinMode(TONE_ENABLE, OUTPUT);
 
   pinMode(RINGER_ENABLE, OUTPUT);
-  pinMode(RINGER_FWD, OUTPUT);
-  pinMode(RINGER_REV, OUTPUT);
-  pinMode(RINGER_PWM, OUTPUT);
-  pinMode(RINGER_CURRENT_SENSE, OUTPUT);
+  pinMode(STATUS_LED, OUTPUT);
 
   digitalWrite(TONE_ENABLE, LOW);
   digitalWrite(RINGER_ENABLE, LOW);
