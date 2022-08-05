@@ -8,7 +8,7 @@
   More info to come later
 */
 
-const short RINGER_MOTOR_SPEED = 255;
+// #define TONE_ENABLE 5
 #define TONE_ENABLE 12
 #define RINGER_ENABLE 4
 #define STATUS_LED 3
@@ -18,14 +18,15 @@ const short RINGER_MOTOR_SPEED = 255;
 #define DIALPAD_PIN 11 // Yellow wire
 #define NUMBER_STOP_PIN 10 // Blue wire
 #define PHONE_PICKED_UP_PIN 2
-const int NUMBER_TIMEOUT_MS = 4000;
-const int RING_TIMEOUT_MS = 6000;
 
-const int DIAL_DEBOUNCE_DELAY = 20;
-const int BUTTON_DEBOUNCE_DELAY = 10;
+#define NUMBER_TIMEOUT_MS 4000
+#define RING_TIMEOUT_MS 6000
 
-const int GSM_UPDATE_RATE_DT = 250;
-const int STATUS_UPDATE_TIMEOUT = 500;
+#define DIAL_DEBOUNCE_DELAY 20
+#define BUTTON_DEBOUNCE_DELAY 10
+
+#define GSM_UPDATE_RATE_DT 250
+#define STATUS_UPDATE_TIMEOUT 500
 //-------------
 
 enum PAS {
@@ -64,7 +65,7 @@ boolean phonePickedUp = false;
 boolean isDialing = false;
 boolean isBellEnabled = false;
 
-PAS phoneStatus = READY;
+PAS phoneStatus = UNKNOWN;
 
 unsigned long millisAtLastNumStop = 0;
 
@@ -73,10 +74,6 @@ AltSoftSerial gsm(9, 8);
 
 void queryPhoneActivity() {
   gsm.println("AT+CPAS");
-}
-
-void flushSerialBuffer() {
-  // gsm.readString();
 }
 
 void pulseCounter() {
@@ -139,8 +136,8 @@ void hungupPhone(uint8_t pinIn) {
   triedDialing = false;
   triedCalling = false;
   if (phoneStatus == CALL_IN_PROGRESS) {
+    Serial.println("Hungup phone while call in progress, send ATH");
     gsm.println("ATH");
-    flushSerialBuffer();
   }
   millisAtLastNumStop = 0;
   phoneNumber = "";
@@ -154,13 +151,10 @@ void callNumber() {
   triedCalling = true;
 
   String telNumCommand = "ATD"+phoneNumber+";";
-  // telNumCommand = "ATD867961606;";
   Serial.println("Calling: " + telNumCommand);
+  gsm.flush(); //
   gsm.println(telNumCommand);
-  // String data = Serial.readString();
-  // if (data.indexOf("OK") == -1) {
-  //   Serial.println("ATH"); // something wrong, best to hung up here
-  // }
+  gsm.flush();
 }
 
 void startDialPulseCount(uint8_t pinIn) {
@@ -214,9 +208,8 @@ void updateGsmState() {
     if (data.indexOf("RING") != -1) { 
       updatedFromGsm = true;// incomming call
       if (phonePickedUp) {
-        Serial.println("Phone already picked up");
+        Serial.println("Phone already picked up, send ATH");
         gsm.println("ATH"); // decline call if phone is picked up
-        flushSerialBuffer();
       } else {
         Serial.println("Incomming call...");
       }
@@ -231,9 +224,9 @@ void updateGsmState() {
       lastStatusUpdateReceivedAt = millis();
       if(data.indexOf("0") != -1) {
         phoneStatus = READY;
-        // if (!triedDialing && phonePickedUp) {
-        //   toneMode = ON;
-        // }
+        if (!triedDialing && phonePickedUp) {
+          toneMode = ON;
+        }
       } else if (data.indexOf("1") != -1) {
         phoneStatus = UNAVAILABLE;
         toneMode = OFF;
@@ -241,8 +234,13 @@ void updateGsmState() {
         phoneStatus = UNKNOWN;
         toneMode = OFF;
       } else if (data.indexOf("3") != -1) {
-        phoneStatus = RINGING;
-        toneMode = OFF;
+        if (phonePickedUp && phoneStatus != RINGING) {
+          Serial.println("Someone called while phone picked up, send ATH");
+          gsm.println("ATH");
+        } else {
+          phoneStatus = RINGING;
+          toneMode = OFF;
+        }
       } else if (data.indexOf("4") != -1) {
         phoneStatus = CALL_IN_PROGRESS;
         toneMode = OFF;
@@ -265,14 +263,6 @@ void updateGsmState() {
     isDialing = false;
     callNumber();
   }
-
-  // this check is needed in case we missed reading when other party hung up when we didn't answer
-  // if (isCalling && phoneStatus != CALL_IN_PROGRESS) {
-  //   Serial.println("not calling");
-  //   gsm.println("ATH");
-  //   isCalling = false;
-  //   flushSerialBuffer();
-  // }
 
   if (isBellEnabled != (phoneStatus == RINGING)) {
     Serial.println("Set ringing to " + (phoneStatus == RINGING));
@@ -335,12 +325,12 @@ void updateTone() {
 byte statusLedPhase = 0;
 short statusLedTimeRemaining = 0;
 
-const short statusReadyPhases[] = {2000, 100};
+const short statusReadyPhases[] = {4000, 100};
 const short statusUnavailablePhases[] = {100, 100};
 const short statusUnknownPhases[] = {500, 100};
-const short statusRingingPhases[] = {100, 1000};
+const short statusRingingPhases[] = {300, 1000};
 const short statusCallInProgssPhases[] = {1000, 100, 100, 100};
-const short statusAsleepPhases[] = {4000, 1000, 100, 100};
+const short statusAsleepPhases[] = {8000, 1000, 100, 100};
 
 void updateNPhaseLedStatus(byte phaseCount, const short phases[]) {
   statusLedPhase++;
@@ -389,11 +379,6 @@ void setup() {
 
   gsm.setTimeout(10);
   gsm.begin(9600);
-  // delay(500);
-  // gsm.println("AT");
-  // updateSerial();
-  // flushSerialBuffer();
-  // callNumber();
 
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
@@ -407,7 +392,8 @@ void setup() {
   digitalWrite(TONE_ENABLE, LOW);
   digitalWrite(RINGER_ENABLE, LOW);
 
-  // digitalWrite(PHONE_PICKED_UP_PIN, HIGH);
+
+  phonePickedUp = digitalRead(PHONE_PICKED_UP_PIN) == LOW;
 
   dialEnable.registerCallbacks(NULL, endDialPulseCount);
   dialPulse.registerCallbacks(pulseDial, NULL);
@@ -422,6 +408,8 @@ void setup() {
 
   updateGsmStageTask.enable();
   updateToneTask.enable();
+  updateStatusLedTask.enable();
+  
 }
 
 void loop() {
