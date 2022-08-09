@@ -382,7 +382,7 @@ void setup() {
 
   pinMode(DIALPAD_PIN, INPUT);
   pinMode(NUMBER_STOP_PIN, INPUT);
-  pinMode(PHONE_PICKED_UP_PIN, INPUT);
+  pinMode(PHONE_PICKED_UP_PIN, INPUT_PULLUP);
 
   pinMode(TONE_ENABLE, OUTPUT);
 
@@ -402,7 +402,7 @@ void setup() {
 
   dialEnable.setup(NUMBER_STOP_PIN, DIAL_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES, NULL, InputDebounce::ST_NORMALLY_CLOSED);
   dialPulse.setup(DIALPAD_PIN, DIAL_DEBOUNCE_DELAY, InputDebounce::PIM_EXT_PULL_UP_RES);
-  buttonPickup.setup(PHONE_PICKED_UP_PIN, InputDebounce::PIM_EXT_PULL_UP_RES);
+  buttonPickup.setup(PHONE_PICKED_UP_PIN, InputDebounce::PIM_INT_PULL_UP_RES);
 
   ts.startNow();
 
