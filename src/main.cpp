@@ -43,6 +43,7 @@ static InputDebounce buttonPickup;
 
 Scheduler ts;
 
+boolean queryGsmStateEnabled = true;
 void updateGsmState();
 Task updateGsmStageTask(GSM_UPDATE_RATE_DT * TASK_MILLISECOND, TASK_FOREVER, &updateGsmState, &ts);
 
@@ -50,9 +51,13 @@ ToneMode toneMode = OFF;
 void updateTone();
 Task updateToneTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateTone, &ts);
 
-unsigned long statusLedLastUpdateTimestamp = 0;
 void updateStatusLed();
 Task updateStatusLedTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateStatusLed,  &ts);
+
+void enableBell();
+void disableBell();
+void updateBellStatus();
+Task updateBellStatusTask(10 * TASK_MILLISECOND, TASK_FOREVER, &updateBellStatus, &ts);
 
 //-------------
 String phoneNumber = "";
@@ -150,6 +155,16 @@ void callNumber() {
   }
   triedCalling = true;
 
+  if (phoneNumber.startsWith("000")) {
+    if (phoneNumber.equals("0001")) {
+      queryGsmStateEnabled = !queryGsmStateEnabled;
+      Serial.print("GSM Query ");
+      Serial.println(queryGsmStateEnabled ? "enabled" : "disabled");
+    }
+    triedCalling = false;
+    return;
+  }
+
   String telNumCommand = "ATD"+phoneNumber+";";
   Serial.println("Calling: " + telNumCommand);
   gsm.flush(); //
@@ -176,18 +191,6 @@ void call(int8_t pinIn) {
     Serial.println("Number cleared");
   }
   phoneNumber = "";
-}
-
-void enableBell() {
-  Serial.println("Enable bell");
-  isBellEnabled = true;
-  digitalWrite(RINGER_ENABLE, HIGH);
-}
-
-void disableBell() {
-  digitalWrite(RINGER_ENABLE, LOW);
-  isBellEnabled = false;
-  Serial.println("Disable bell");
 }
 
 boolean waitingForStatusUpdate = false;
@@ -249,19 +252,23 @@ void updateGsmState() {
         toneMode = OFF;
       }
     }
-  } else if (!waitingForStatusUpdate || ((millis() - lastStatusUpdateReceivedAt) > STATUS_UPDATE_TIMEOUT)) {
+  } else if (queryGsmStateEnabled && (!waitingForStatusUpdate || ((millis() - lastStatusUpdateReceivedAt) > STATUS_UPDATE_TIMEOUT))) {
     // Serial.println("query phone activity");
     queryPhoneActivity();
     waitingForStatusUpdate = true;
   }
 
-  if(!updatedFromGsm) {
+  if(!updatedFromGsm && queryGsmStateEnabled) {
     return;
   }
 
   if (phonePickedUp && isDialing && (millis() >= millisAtLastNumStop + NUMBER_TIMEOUT_MS)) {
     isDialing = false;
     callNumber();
+  }
+
+  if (!queryGsmStateEnabled) {
+    return;
   }
 
   if (isBellEnabled != (phoneStatus == RINGING)) {
@@ -322,8 +329,34 @@ void updateTone() {
   digitalWrite(TONE_ENABLE, toneState);
 }
 
+/**
+ * @brief 
+ * 
+ * @param lastUpdateTimestamp 
+ * @param timeRemaining 
+ * @return false jei timeRemaining <= 0
+ */
+boolean updatePhaseCountdown(unsigned long* lastUpdateTimestamp, short* timeRemaining) {
+  unsigned long lastUpdate = *lastUpdateTimestamp;
+  *lastUpdateTimestamp = millis();
+  unsigned short dt = *lastUpdateTimestamp - lastUpdate;
+  *timeRemaining -= dt;
+  return *timeRemaining > 0;
+}
+
+void updateNPhaseStatus(byte phaseCount, const short phases[], byte* phase, short* statusTimeRemaining, uint8_t pin) {
+  *phase = *phase + 1;
+  if (*phase >= phaseCount) {
+    *phase = 0;
+  }
+
+  digitalWrite(pin, *phase % 2 == 0 ? LOW : HIGH);
+  *statusTimeRemaining = phases[*phase];
+}
+
 byte statusLedPhase = 0;
 short statusLedTimeRemaining = 0;
+unsigned long statusLedLastUpdateTimestamp = 0;
 
 const short statusReadyPhases[] = {4000, 100};
 const short statusUnavailablePhases[] = {100, 100};
@@ -333,21 +366,11 @@ const short statusCallInProgssPhases[] = {1000, 100, 100, 100};
 const short statusAsleepPhases[] = {8000, 1000, 100, 100};
 
 void updateNPhaseLedStatus(byte phaseCount, const short phases[]) {
-  statusLedPhase++;
-  if (statusLedPhase >= phaseCount) {
-    statusLedPhase = 0;
-  }
-
-  digitalWrite(STATUS_LED, statusLedPhase % 2 == 0 ? LOW : HIGH);
-  statusLedTimeRemaining = phases[statusLedPhase];
+  updateNPhaseStatus(phaseCount, phases, &statusLedPhase, &statusLedTimeRemaining, STATUS_LED);
 }
 
 void updateStatusLed() {
-  unsigned long lastUpdate = statusLedLastUpdateTimestamp;
-  statusLedLastUpdateTimestamp = millis();
-  unsigned short dt = statusLedLastUpdateTimestamp - lastUpdate;
-  statusLedTimeRemaining -= dt;
-  if (statusLedTimeRemaining > 0) {
+  if(updatePhaseCountdown(&statusLedLastUpdateTimestamp, &statusLedTimeRemaining)) {
     return;
   }
 
@@ -372,6 +395,36 @@ void updateStatusLed() {
     break;
   }
 
+}
+
+byte ringerPhase = 0;
+short ringerTimeRemaining = 0;
+unsigned long ringerUpdateTimestamp = 0;
+
+const short ringerPhases[] = {3500, 1500};
+
+void updateBellStatus() {
+    if(updatePhaseCountdown(&ringerUpdateTimestamp, &ringerTimeRemaining)) {
+    return;
+  }
+
+  updateNPhaseStatus(2, ringerPhases, &ringerPhase, &ringerTimeRemaining, RINGER_ENABLE);
+}
+
+void enableBell() {
+  Serial.println("Enable bell");
+  isBellEnabled = true;
+  ringerPhase = 0;
+  ringerTimeRemaining = 0;
+  ringerUpdateTimestamp = millis();
+  updateBellStatusTask.enable();
+}
+
+void disableBell() {
+  updateBellStatusTask.disable();
+  digitalWrite(RINGER_ENABLE, LOW);
+  isBellEnabled = false;
+  Serial.println("Disable bell");
 }
 
 void setup() {
